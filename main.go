@@ -23,7 +23,10 @@ type Config struct {
 func initConfig() (*Config, error) {
 	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
-	viper.ReadInConfig()
+	err := viper.ReadInConfig()
+	if err != nil {
+		return nil, err
+	}
 
 	config := Config{
 		ClientID:     viper.GetString("CLIENT_ID"),
