@@ -5,9 +5,10 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/google/go-github/github"
-	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/s7v7nislands/github-crawler/metrics"
 	"github.com/s7v7nislands/github-crawler/oauth"
 	"golang.org/x/oauth2"
@@ -39,18 +40,15 @@ Welcome!
 var tokens sync.Map
 
 type Server struct {
-	oauth      *oauth2.Config
-	stateCache *lru.Cache[string, any]
+	oauthConfig *oauth2.Config
+	stateCache  *oauth.StateCache
 }
 
-func New(oauth *oauth2.Config) (*Server, error) {
-	cache, err := lru.New[string, any](128)
-	if err != nil {
-		return nil, err
-	}
+func New(config *oauth2.Config, r *redis.Client) (*Server, error) {
+	cache := oauth.NewStateCache(r, 5*time.Minute)
 	return &Server{
-		oauth:      oauth,
-		stateCache: cache,
+		oauthConfig: config,
+		stateCache:  cache,
 	}, nil
 }
 
@@ -61,23 +59,32 @@ func (s *Server) HandleMain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGitHubLogin(w http.ResponseWriter, r *http.Request) {
-	state := oauth.MustGenerateState()
-	s.stateCache.Add(state, "")
-	url := s.oauth.AuthCodeURL(state, oauth2.AccessTypeOnline)
+	state, err := s.stateCache.SetState(r.Context())
+	if err != nil {
+		log.Printf("set state error: %s", err)
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+	}
+	url := s.oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOnline)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
 func (s *Server) HandleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	log.Printf("handle github callback")
 	state := r.FormValue("state")
-	if !s.stateCache.Remove(state) {
+	x, err := s.stateCache.GetDelState(r.Context(), state)
+	if err != nil {
+		log.Printf("get state error: %s", err)
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+		return
+	}
+	if x != "" {
 		log.Printf("invalid oauth state got '%s'", state)
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 		return
 	}
 
 	code := r.FormValue("code")
-	token, err := s.oauth.Exchange(r.Context(), code)
+	token, err := s.oauthConfig.Exchange(r.Context(), code)
 	if err != nil {
 		log.Printf("oauthConf.Exchange() failed with '%s'\n", err)
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
@@ -93,7 +100,7 @@ func (s *Server) HandleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 func (s *Server) HandleList(w http.ResponseWriter, r *http.Request) {
 	infos := []*github.User{}
 	tokens.Range(func(key, value any) bool {
-		oauthClient := s.oauth.Client(r.Context(), value.(*oauth2.Token))
+		oauthClient := s.oauthConfig.Client(r.Context(), value.(*oauth2.Token))
 		client := github.NewClient(oauthClient)
 		user, _, err := client.Users.Get(r.Context(), "")
 		if err != nil {

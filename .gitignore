@@ -25,4 +25,4 @@ go.work
 .env.*
 
 # charts
-helm/charts/*
+helm/github-crawler/charts/*

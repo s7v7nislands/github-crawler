@@ -48,7 +48,7 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:          
-            - name: "ClIENT_ID"
+            - name: "CLIENT_ID"
               valueFrom:
                 secretKeyRef:
                   key: clientID
@@ -59,7 +59,9 @@ spec:
                   key: clientSecret
                   name: {{ .Release.Name }}-auth
             - name: "PORT"
-              value: {{ printf "\"%d\"" .Values.service.port }}
+              value: "{{ .Values.service.port }}"
+            - name: "REDIS_ADDRESS"
+              value: '{{ .Release.Name }}-redis-master:6379'
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

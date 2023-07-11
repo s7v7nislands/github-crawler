@@ -111,3 +111,8 @@ prometheus:
     enabled: false
     additionalLabels: {}
     namespace: ""
+
+redis:
+  auth:
+    enabled: false
+  architecture: standalone
