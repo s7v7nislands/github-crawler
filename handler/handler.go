@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/google/go-github/github"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/s7v7nislands/github-crawler/metrics"
 	"github.com/s7v7nislands/github-crawler/oauth"
 	"golang.org/x/oauth2"
@@ -38,13 +39,19 @@ Welcome!
 var tokens sync.Map
 
 type Server struct {
-	oauth oauth2.Config
+	oauth      *oauth2.Config
+	stateCache *lru.Cache[string, any]
 }
 
-func New(oauth oauth2.Config) *Server {
-	return &Server{
-		oauth: oauth,
+func New(oauth *oauth2.Config) (*Server, error) {
+	cache, err := lru.New[string, any](128)
+	if err != nil {
+		return nil, err
 	}
+	return &Server{
+		oauth:      oauth,
+		stateCache: cache,
+	}, nil
 }
 
 func (s *Server) HandleMain(w http.ResponseWriter, r *http.Request) {
@@ -54,15 +61,17 @@ func (s *Server) HandleMain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleGitHubLogin(w http.ResponseWriter, r *http.Request) {
-	url := s.oauth.AuthCodeURL(oauth.StateString, oauth2.AccessTypeOnline)
+	state := oauth.MustGenerateState()
+	s.stateCache.Add(state, "")
+	url := s.oauth.AuthCodeURL(state, oauth2.AccessTypeOnline)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
 func (s *Server) HandleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	log.Printf("handle github callback")
 	state := r.FormValue("state")
-	if state != oauth.StateString {
-		log.Printf("invalid oauth state, expected '%s', got '%s'", oauth.StateString, state)
+	if !s.stateCache.Remove(state) {
+		log.Printf("invalid oauth state got '%s'", state)
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 		return
 	}
