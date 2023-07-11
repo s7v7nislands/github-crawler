@@ -4,24 +4,28 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/s7v7nislands/github-crawler/handler"
+	"github.com/spf13/viper"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 )
 
-func initConfig() (*oauth2.Config, error) {
-	e := os.Environ()
-	for _, i := range e {
-		fmt.Printf("%s\n", i)
-	}
-	config := oauth2.Config{
-		ClientID:     os.Getenv("CLIENT_ID"),
-		ClientSecret: os.Getenv("CLIENT_SECRET"),
-		Scopes:       []string{"user:email", "user:follow"},
-		Endpoint:     github.Endpoint,
+type Config struct {
+	ClientID     string
+	ClientSecret string
+	Port         int
+}
+
+func initConfig() (*Config, error) {
+	viper.SetConfigFile(".env")
+	viper.ReadInConfig()
+
+	config := Config{
+		ClientID:     viper.GetString("CLIENT_ID"),
+		ClientSecret: viper.GetString("CLIENT_SECRET"),
+		Port:         viper.GetInt("PORT"),
 	}
 
 	if config.ClientID == "" {
@@ -30,6 +34,10 @@ func initConfig() (*oauth2.Config, error) {
 
 	if config.ClientSecret == "" {
 		return nil, errors.New("client_secret is empty")
+	}
+
+	if config.Port == 0 {
+		return nil, errors.New("port is empty")
 	}
 
 	return &config, nil
@@ -42,7 +50,12 @@ func main() {
 		return
 	}
 
-	s, err := handler.New(config)
+	s, err := handler.New(&oauth2.Config{
+		ClientID:     config.ClientID,
+		ClientSecret: config.ClientSecret,
+		Scopes:       []string{"user:email", "user:follow"},
+		Endpoint:     github.Endpoint,
+	})
 	if err != nil {
 		fmt.Printf("Init handler error: %v\n", err)
 		return
@@ -54,6 +67,6 @@ func main() {
 
 	// todo: https://prometheus.io/docs/guides/go-application/
 	http.Handle("/metrics", promhttp.Handler())
-	fmt.Printf("Started running on http://127.0.0.1:9090\n")
-	fmt.Println(http.ListenAndServe(":9090", nil))
+	fmt.Printf("Started running on http://127.0.0.1:%d\n", config.Port)
+	fmt.Println(http.ListenAndServe(fmt.Sprintf(":%d", config.Port), nil))
 }

@@ -51,13 +51,15 @@ spec:
             - name: "ClIENT_ID"
               valueFrom:
                 secretKeyRef:
-                  key:  clientID
+                  key: clientID
                   name: {{ .Release.Name }}-auth
             - name: "CLIENT_SECRET"
               valueFrom:
                 secretKeyRef:
-                  key:  clientSecret
+                  key: clientSecret
                   name: {{ .Release.Name }}-auth
+            - name: "PORT"
+              value: {{ printf "\"%d\"" .Values.service.port }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
